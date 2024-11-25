@@ -1,0 +1,19 @@
+function greet($name, $age) {
+say Hello, $name! You are $age years old.
+}
+
+call greet(Foo, 34)
+
+add(5,3,1,2,1000)
+multiply(4, 2)
+subtract(3,2)
+divide(4,2)
+
+function groot($GOOGK) {
+say Welcome to $GOOGK!
+repeat 3 {
+say Hello!
+}
+}
+
+call groot(FooBar)
