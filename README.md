@@ -1,5 +1,5 @@
 # KinderScript
- A simple programming language for Kids! Been Planning and working on it for quiet some time.
+ A simple programming language for Kids!
 
 
 Todos:
