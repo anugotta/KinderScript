@@ -17,3 +17,91 @@ say Hello!
 }
 
 call groot(FooBar)
+
+say === More Fun Examples ===
+
+function introduce($name, $hobby) {
+say Meet $name!
+say $name loves $hobby
+say $name would like to do some math!
+}
+
+call introduce(Charlie, programming)
+add(1, 2, 3)
+multiply(2, 5)
+call introduce(Diana, painting)
+add(10, 20)
+multiply(3, 4)
+
+function countdown($number) {
+say Counting down from $number...
+repeat 3 {
+say $number seconds left...
+}
+say Blast off!
+}
+
+call countdown(3)
+
+say Doing some math magic:
+add(10, 20, 30, 40)
+multiply(5, 5, 2)
+subtract(100, 50, 20)
+divide(100, 5, 2)
+
+function celebrate($name, $times) {
+say Happy celebration, $name!
+repeat 2 {
+say Cheers!
+}
+say Celebration complete for $name!
+}
+
+call celebrate(Alice, 2)
+multiply(2, 2)
+call celebrate(Bob, 4)
+multiply(4, 2)
+
+say Nested repeat example:
+repeat 2 {
+say Outer loop iteration
+repeat 3 {
+say  Inner loop
+}
+}
+
+say Final calculation:
+add(2, 2, 2, 2)
+multiply(2, 2, 2)
+say That was fun!
+
+say More complex function example:
+function mathShow($name) {
+say Math show for $name!
+say Get ready for amazing calculations!
+say Thanks for watching, $name!
+}
+
+call mathShow(Eve)
+say Performing math for Eve:
+add(1, 2, 3, 4, 5)
+multiply(3, 3, 3)
+subtract(100, 20, 10)
+divide(100, 2, 2)
+call mathShow(Frank)
+say Performing math for Frank:
+add(2, 4, 6, 8)
+multiply(2, 2, 2, 2)
+
+say Triple nested repeat:
+repeat 2 {
+say First level
+repeat 2 {
+say  Second level
+repeat 2 {
+say   Third level!
+}
+}
+}
+
+say Program complete!

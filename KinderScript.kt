@@ -31,12 +31,17 @@ sealed class Block {
     data class Function(val name: String, val parameters: List<String>, val block: Block) : Block()
     data class FunctionCall(val name: String, val arguments: List<String>) : Block()
     data class Variable(val name: String, val value: Any) : Block()
+    data class If(val condition: String, val thenBlock: Block, val elseBlock: Block?) : Block()
+    data class SetVariable(val name: String, val value: Any) : Block()
 }
+
+// Version information
+const val KINDERSCRIPT_VERSION = "1.2.0"
 
 // Main interpreter class
 class KinderScript {
     private val globalScope = Scope()
-    private val mathOperations = setOf("add", "subtract", "multiply", "divide")
+    private val mathOperations = setOf("add", "subtract", "multiply", "divide", "modulo", "power")
     
     fun parseFile(fileName: String) {
         try {
@@ -256,6 +261,107 @@ class KinderScript {
                 Pair(Block.Repeat(times, bodyBlock), endIndex)
             }
 
+            "if" -> {
+                // Skip whitespace after 'if'
+                while (currentIndex < content.length && content[currentIndex].isWhitespace()) {
+                    currentIndex++
+                }
+                
+                // Find opening brace for if body
+                val openBraceIndex = content.indexOf('{', currentIndex)
+                if (openBraceIndex == -1) {
+                    throw Exception("Missing opening brace for if statement")
+                }
+                
+                // Extract condition (everything before the opening brace)
+                val condition = content.substring(currentIndex, openBraceIndex).trim()
+                if (condition.isEmpty()) {
+                    throw Exception("If statement requires a condition")
+                }
+                
+                val (thenBlock, thenEndIndex) = parseCodeBlock(content, openBraceIndex)
+                
+                // Check for else
+                var elseBlock: Block? = null
+                var finalIndex = thenEndIndex
+                
+                // Skip whitespace after then block
+                var checkIndex = thenEndIndex
+                while (checkIndex < content.length && 
+                       (content[checkIndex].isWhitespace() || content[checkIndex] == '\n' || content[checkIndex] == '\r')) {
+                    checkIndex++
+                }
+                
+                // Check if next command is "else"
+                if (checkIndex < content.length) {
+                    val nextCommand = content.substring(checkIndex).takeWhile { 
+                        !it.isWhitespace() && it != '{' && it != '\n' && it != '\r'
+                    }
+                    
+                    if (nextCommand.lowercase() == "else") {
+                        val elseStartIndex = checkIndex + nextCommand.length
+                        val elseOpenBraceIndex = content.indexOf('{', elseStartIndex)
+                        if (elseOpenBraceIndex == -1) {
+                            throw Exception("Missing opening brace for else statement")
+                        }
+                        
+                        val (elseBlockParsed, elseEndIndex) = parseCodeBlock(content, elseOpenBraceIndex)
+                        elseBlock = elseBlockParsed
+                        finalIndex = elseEndIndex
+                    }
+                }
+                
+                Pair(Block.If(condition, thenBlock, elseBlock), finalIndex)
+            }
+
+            "set" -> {
+                // Skip whitespace after 'set'
+                while (currentIndex < content.length && content[currentIndex].isWhitespace()) {
+                    currentIndex++
+                }
+                
+                // Parse variable name (with or without $)
+                val varNameEnd = content.indexOf('=', currentIndex)
+                if (varNameEnd == -1) {
+                    throw Exception("Set command requires '=' to assign value")
+                }
+                
+                val varName = content.substring(currentIndex, varNameEnd).trim().removePrefix("$")
+                if (varName.isEmpty()) {
+                    throw Exception("Set command requires a variable name")
+                }
+                
+                currentIndex = varNameEnd + 1
+                
+                // Skip whitespace after '='
+                while (currentIndex < content.length && content[currentIndex].isWhitespace()) {
+                    currentIndex++
+                }
+                
+                // Find end of value (end of line or end of content)
+                val endOfLine = content.indexOf('\n', currentIndex)
+                val valueStr = if (endOfLine == -1) {
+                    content.substring(currentIndex).trim()
+                } else {
+                    content.substring(currentIndex, endOfLine).trim()
+                }
+                
+                // Try to parse as integer, otherwise use as string
+                val value = try {
+                    valueStr.toInt()
+                } catch (e: NumberFormatException) {
+                    // Remove quotes if present
+                    if (valueStr.startsWith("\"") && valueStr.endsWith("\"")) {
+                        valueStr.substring(1, valueStr.length - 1)
+                    } else {
+                        valueStr
+                    }
+                }
+                
+                Pair(Block.SetVariable(varName, value), 
+                     if (endOfLine == -1) content.length else endOfLine)
+            }
+
             else -> {
                 // Check for math operations with parentheses
                 if (mathOperations.contains(command.lowercase()) && content[currentIndex] == '(') {
@@ -268,17 +374,28 @@ class KinderScript {
                     // Extract numbers inside parentheses
                     val numberStr = content.substring(currentIndex + 1, closingParenIndex).trim()
                     
+                    // Validate that numbers are provided
+                    if (numberStr.isEmpty()) {
+                        throw Exception("Math operation '${command}' requires at least one number")
+                    }
+                    
                     // Support comma-separated numbers
                     val numbers = numberStr
                         .split(",")
-                        .map { it.trim().toInt() }
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .map { it.toInt() }
+                    
+                    if (numbers.isEmpty()) {
+                        throw Exception("Math operation '${command}' requires at least one valid number")
+                    }
                     
                     Pair(Block.MathOperation(command, numbers), 
                          content.indexOf('\n', closingParenIndex).let { 
                              if (it == -1) content.length else it 
                          })
                 } else {
-                    throw Exception("Unknown command: '$command'. Valid commands are: say, function, call, repeat, add(), subtract(), multiply(), divide()")
+                    throw Exception("Unknown command: '$command'. Valid commands are: say, function, call, repeat, if, set, add(), subtract(), multiply(), divide(), modulo(), power()")
                 }
             }
         }
@@ -322,9 +439,36 @@ class KinderScript {
             is Block.MathOperation -> {
                 val result = when (block.operation.lowercase()) {
                     "add" -> block.numbers.sum()
-                    "subtract" -> block.numbers.reduce { acc, num -> acc - num }
+                    "subtract" -> {
+                        if (block.numbers.isEmpty()) throw Exception("Subtract requires at least one number")
+                        block.numbers.reduce { acc, num -> acc - num }
+                    }
                     "multiply" -> block.numbers.reduce { acc, num -> acc * num }
-                    "divide" -> block.numbers.reduce { acc, num -> acc / num }
+                    "divide" -> {
+                        if (block.numbers.isEmpty()) throw Exception("Divide requires at least one number")
+                        // Check for division by zero
+                        val hasZero = block.numbers.drop(1).any { it == 0 }
+                        if (hasZero) {
+                            throw Exception("Division by zero is not allowed")
+                        }
+                        block.numbers.reduce { acc, num -> acc / num }
+                    }
+                    "modulo" -> {
+                        if (block.numbers.size < 2) throw Exception("Modulo requires at least two numbers")
+                        val hasZero = block.numbers.drop(1).any { it == 0 }
+                        if (hasZero) {
+                            throw Exception("Modulo by zero is not allowed")
+                        }
+                        block.numbers.reduce { acc, num -> acc % num }
+                    }
+                    "power" -> {
+                        if (block.numbers.size < 2) throw Exception("Power requires at least two numbers")
+                        var result = block.numbers[0].toDouble()
+                        for (i in 1 until block.numbers.size) {
+                            result = Math.pow(result, block.numbers[i].toDouble())
+                        }
+                        result.toInt()
+                    }
                     else -> throw Exception("Unknown operation: ${block.operation}")
                 }
                 println("Result of ${block.operation}: $result")
@@ -348,6 +492,11 @@ class KinderScript {
             is Block.FunctionCall -> {
                 val function = scope.getFunction(block.name)
                 if (function != null) {
+                    // Validate parameter/argument count match
+                    if (function.parameters.size != block.arguments.size) {
+                        throw Exception("Function '${block.name}' expects ${function.parameters.size} parameter(s), but ${block.arguments.size} argument(s) were provided")
+                    }
+                    
                     val functionScope = Scope(scope)
                     
                     // Match arguments to parameters
@@ -359,12 +508,92 @@ class KinderScript {
                     
                     executeBlock(function.block, functionScope)
                 } else {
-                    println("Function ${block.name} not found!")
+                    throw Exception("Function '${block.name}' not found!")
                 }
             }
             
             is Block.Variable -> {
                 scope.setVariable(block.name, block.value)
+            }
+            
+            is Block.If -> {
+                val conditionResult = evaluateCondition(block.condition, scope)
+                if (conditionResult) {
+                    executeBlock(block.thenBlock, scope)
+                } else {
+                    block.elseBlock?.let { executeBlock(it, scope) }
+                }
+            }
+            
+            is Block.SetVariable -> {
+                // Resolve value if it's a variable reference
+                val resolvedValue = if (block.value is String && block.value.toString().startsWith("$")) {
+                    val varName = block.value.toString().removePrefix("$")
+                    scope.getVariable(varName) ?: block.value
+                } else {
+                    block.value
+                }
+                scope.setVariable(block.name, resolvedValue)
+            }
+        }
+    }
+    
+    // Helper method to evaluate conditions
+    private fun evaluateCondition(condition: String, scope: Scope): Boolean {
+        val trimmed = condition.trim()
+        
+        // Handle comparison operators: ==, !=, <, >, <=, >=
+        val operators = listOf("==", "!=", "<=", ">=", "<", ">")
+        for (op in operators) {
+            if (trimmed.contains(op)) {
+                val parts = trimmed.split(op, limit = 2)
+                if (parts.size == 2) {
+                    val left = resolveValue(parts[0].trim(), scope)
+                    val right = resolveValue(parts[1].trim(), scope)
+                    
+                    return when (op) {
+                        "==" -> left == right
+                        "!=" -> left != right
+                        "<" -> (left as? Number)?.toDouble() ?: 0.0 < (right as? Number)?.toDouble() ?: 0.0
+                        ">" -> (left as? Number)?.toDouble() ?: 0.0 > (right as? Number)?.toDouble() ?: 0.0
+                        "<=" -> (left as? Number)?.toDouble() ?: 0.0 <= (right as? Number)?.toDouble() ?: 0.0
+                        ">=" -> (left as? Number)?.toDouble() ?: 0.0 >= (right as? Number)?.toDouble() ?: 0.0
+                        else -> false
+                    }
+                }
+            }
+        }
+        
+        // If no operator, check if it's a truthy value
+        val value = resolveValue(trimmed, scope)
+        return when (value) {
+            is Number -> value.toInt() != 0
+            is String -> value.isNotEmpty() && value.lowercase() != "false"
+            is Boolean -> value
+            else -> true  // Non-null values are truthy
+        }
+    }
+    
+    // Helper method to resolve a value (variable or literal)
+    private fun resolveValue(valueStr: String, scope: Scope): Any {
+        // Remove $ prefix if present
+        val cleanValue = valueStr.removePrefix("$")
+        
+        // Try to get as variable first
+        val variable = scope.getVariable(cleanValue)
+        if (variable != null) {
+            return variable
+        }
+        
+        // Try to parse as integer
+        return try {
+            cleanValue.toInt()
+        } catch (e: NumberFormatException) {
+            // Return as string (remove quotes if present)
+            if (cleanValue.startsWith("\"") && cleanValue.endsWith("\"")) {
+                cleanValue.substring(1, cleanValue.length - 1)
+            } else {
+                cleanValue
             }
         }
     }
@@ -394,14 +623,22 @@ class KinderScript {
 }
 
 fun main(args: Array<String>) {
+    // Check for version flag
+    if (args.isNotEmpty() && (args[0] == "--version" || args[0] == "-v")) {
+        println("KinderScript version $KINDERSCRIPT_VERSION")
+        return
+    }
+    
     // Check if a file name is provided
     if (args.isEmpty()) {
+        println("KinderScript $KINDERSCRIPT_VERSION")
         println("Usage: java -jar KinderScript.jar <filename.kinder>")
+        println("       java -jar KinderScript.jar --version")
         println("Please provide a KinderScript file to execute.")
         return
     }
 
-    println("Welcome to KinderScript!")
+    println("Welcome to KinderScript v$KINDERSCRIPT_VERSION!")
     println("Running your KinderScript program...")
     try {
         val kinderScript = KinderScript()
